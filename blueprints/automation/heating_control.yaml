@@ -1,6 +1,13 @@
 blueprint:
   name: 'Heating Control'
-  description: 'Automatic heating based on a scheduler, presence of people and optional dependencies such as window opening, winter mode or party mode. Optional calibration using a separate temperature sensor. Forked from panahns'
+  description: 'Automatic heating based on a scheduler, presence of people and optional dependencies such as window opening. Optional calibration using a separate temperature sensor.
+    Presence-detection is only used for ad.adjusting the temperature.
+    - helper-dropdown hast to contain auto|heat|off to control the general behaviour
+    - three temperatures comfort, away, min
+    - auto & presence: scheduler, comfort/min temp
+    - auto & away: scheduler, away/min temp
+    - heat: comfort temp
+    This blueprint was Forked from panahns'
   source_url: 'https://github.com/clemensao/homeassistant/blob/main/blueprints/automation/heating_control.yaml'
   domain: automation
   input:
@@ -16,20 +23,24 @@ blueprint:
     min_temp:
       name: 'Minimum Temp'
       description: 'If no one is at home, the minimum temperature is set.'
-      default: 19
+      default: 18
       selector:
         number:
-          min: 12
-          max: 24
+          min: 10
+          max: 25
           step: 0.5
           mode: slider
           
     set_temp:
       name: 'Comfort temperature'
-      description: 'If someone is at home, the comfort temperature (input number) is set. An input number can be added in the helpers section in your home assistant settings.'
+      description: 'If someone is at home, the comfort temperature is set.'
+      default: 20
       selector:
-        entity:
-          domain: input_number
+        number:
+          min: 10
+          max: 25
+          step: 0.5
+          mode: slider
           
     persons:
       name: 'Persons'
@@ -85,7 +96,7 @@ blueprint:
         entity:
           domain: input_boolean
           
-    party_mode:
+    heat_mode:
       name: 'Heat mode (optional)'
       description: 'Overwrites winter mode and scheduler. If on, heating is activated.'
       default:
@@ -110,12 +121,13 @@ variables:
   scheduler: !input 'scheduler'
   window: !input 'window'
   winter_mode: !input 'winter_mode'
-  party_mode: !input 'party_mode'
+  heat_mode: !input 'heat_mode'
   persons: !input 'persons'
 
-  party_state: "{{ party_mode != none and is_state(party_mode, 'on') }}"
+  party_state: "{{ heat_mode != none and is_state(heat_mode, 'on') }}"
   winter_state: "{{ winter_mode == none or is_state(winter_mode, 'on') }}"
   window_state: "{{ window != none and is_state(window, 'on') }}"
+  mode_change_wait: 2
   mode: >
     {% if (winter_state == true or party_state == true) and window_state == false %}
       auto
@@ -126,7 +138,7 @@ variables:
   
   temperatur: >
     {% if ((states(scheduler) == 'on' or party_state == true) and persons_home_count | int > 0 ) %}
-      {{ states(set_temp) }}
+      {{ set_temp }}
     {% else %}
       {{ min_temp }}
     {% endif %}
@@ -136,68 +148,64 @@ variables:
 trigger_variables:
   window_t: !input window
   winter_mode_t: !input winter_mode
-  party_mode_t: !input party_mode
+  heat_mode_t: !input heat_mode
   actual_local_temperature_t: !input 'external_temp_sensor'
 #  temperature_changed_t: "{{ actual_local_temperature_t != none and (as_timestamp(now()) - as_timestamp(states[actual_local_temperature_t].last_updated)) > 60  }}"
 
 trigger:
+  # home assistant events
   - platform: homeassistant
     event: start
-
   - platform: event
     event_type: automation_reloaded
-
+  # schedule state changes
   - platform: state
     entity_id: !input 'scheduler'
-
-  - platform: state
-    entity_id: !input 'set_temp'
-    for:
-      seconds: 2
-
+  # peoples presence changes
   - platform: state
     entity_id: !input 'persons'
-
+  # window open
   - platform: template
     value_template: >-
        {{ window_t != none and is_state(window_t, 'on') }}
     for:
       seconds: !input 'window_open_delay'
-
+  # window closes
   - platform: template
     value_template: >-
        {{ window_t != none and is_state(window_t, 'off') }}
     for:
       seconds: !input 'window_close_delay'
-      
+  # winter_mode changes    
   - platform: template
     value_template: >-
        {{ winter_mode_t != none and is_state(winter_mode_t, 'on') }}
     for:
-      seconds: !input 'window_open_delay'
-
+      seconds: mode_change_wait
   - platform: template
     value_template: >-
        {{ winter_mode_t != none and is_state(winter_mode_t, 'off') }}
     for:
-      seconds: !input 'window_close_delay'
-      
+      seconds: mode_change_wait
+  # heat mode changes    
   - platform: template
     value_template: >-
-       {{ party_mode_t != none and is_state(party_mode_t, 'on') }}
+       {{ heat_mode_t != none and is_state(heat_mode_t, 'on') }}
     for:
-      seconds: !input 'window_open_delay'
-      
+      seconds: mode_change_wait
   - platform: template
     value_template: >-
-       {{ party_mode_t != none and is_state(party_mode_t, 'off') }}
+       {{ heat_mode_t != none and is_state(heat_mode_t, 'off') }}
     for:
-      seconds: !input 'window_close_delay'
-    
+      seconds: mode_change_wait
+  # every 10 minutes 
   - platform: time_pattern
     minutes: "/10"
     
 action:
+  #################################
+  # Claibration
+  #################################
   - if:
     - condition: template
       value_template: "{{ trigger.platform == 'time_pattern' }}"
