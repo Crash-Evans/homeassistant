@@ -1,13 +1,20 @@
 blueprint:
   name: 'Heating Control'
-  description: 'Automatic heating based on a scheduler, presence of people and optional dependencies such as window opening. Optional calibration using a separate temperature sensor.
-    Presence-detection is only used for ad.adjusting the temperature.
-    - helper-dropdown hast to contain auto|heat|off to control the general behaviour
-    - three temperatures comfort, away, min
-    - auto & presence: scheduler, comfort/min temp
-    - auto & away: scheduler, away/min temp
-    - heat: comfort temp
-    This blueprint was Forked from panahns'
+  description: 'Automatic heating based on a scheduler, presence of people 
+    and optional dependencies such as window opening, temperature calibration using a separate temperature sensor (only when valve position < 10%).
+    Presence-detection is only used for adjusting the temperature. Comfort- and Minimum-temperature.
+    The temperature only changes when Scheduler or Presence change, also on restart! (So meanwhile you can dial the thermostat manually) <br />
+    NEW: Adding a "work from home" helper can enable or disable the scheduler<br />
+    Temperatur-assignment:
+    <ul>
+    <li>Wintertime & Presence: scheduler ? comfort : min</li>
+    <li>Wintertime & Away: scheduler  ? away/min : min</li>
+    <li>Heat mode: comfort temp</li>
+    </ul>
+    <p>
+    Device specific bahaviour:
+      Tado: "heat"-mode is used beacause in "auto" mode Tado uses its own schedules
+    </p>'
   source_url: 'https://github.com/clemensao/homeassistant/blob/main/blueprints/automation/heating_control.yaml'
   domain: automation
   input:
@@ -26,10 +33,18 @@ blueprint:
       default: 18
       selector:
         number:
-          min: 10
+          min: 5
           max: 25
           step: 0.5
           mode: slider
+
+    min_temp_input:
+      name: 'Minimum Temp taken from an input (optional)'
+      description: 'If no one is at home, the minimum temperature is set by a helper number input (optional).'
+      default:
+      selector:
+        entity:
+          domain: input_number
           
     set_temp:
       name: 'Comfort temperature'
@@ -47,7 +62,9 @@ blueprint:
       description: 'If a person is at home, the comfort temperature is set.'
       selector:
         entity:
-          domain: person
+          domain: 
+            - person
+            - device_tracker
           multiple: true
         
     scheduler:
@@ -57,6 +74,14 @@ blueprint:
         entity:
           domain: schedule
           multiple: false
+    
+    home_office:
+      name: 'Working at home (optional)'
+      description: 'If true, use scheduler, if no then we set to min temperature (optional).'
+      default:
+      selector:
+        entity:
+          domain: input_boolean
           
     window:
       name: 'Window (optional)'
@@ -113,21 +138,34 @@ blueprint:
           domain: sensor
           device_class: temperature
 
+    moisture_threshold:
+      name: 'Humidity Threshold (optional)'
+      description: 'A threshold helper reflecting Humidity can be added. If on (humid) it overrides scheduler and presence'
+      default:
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: moisture
+
 variables:
   trvs: !input 'heating'
   valves: "{{ expand(trvs) | map(attribute='entity_id') | list }}"
   set_temp: !input 'set_temp'
   min_temp: !input 'min_temp'
+  min_temp_input: !input 'min_temp_input'
   scheduler: !input 'scheduler'
+  home_office: !input 'home_office'
   window: !input 'window'
   winter_mode: !input 'winter_mode'
   heat_mode: !input 'heat_mode'
   persons: !input 'persons'
+  moisture_sensor: !input 'moisture_threshold'
+  moisture_flag: "{{ moisture_sensor != none and is_state(moisture_sensor,'on') }}"
 
   party_state: "{{ heat_mode != none and is_state(heat_mode, 'on') }}"
   winter_state: "{{ winter_mode == none or is_state(winter_mode, 'on') }}"
   window_state: "{{ window != none and is_state(window, 'on') }}"
-  mode_change_wait: 2
+  homeoffice_state: "{{ home_office == none or (home_office != none and is_state(home_office, 'on')) }}"
   mode: >
     {% if (winter_state == true or party_state == true) and window_state == false %}
       auto
@@ -137,23 +175,27 @@ variables:
   persons_home_count: "{{ expand(persons) | selectattr('state', 'eq', 'home') | list | count }}"
   
   temperatur: >
-    {% if ((states(scheduler) == 'on' or party_state == true) and persons_home_count | int > 0 ) %}
+    {% if ((((states(scheduler) == 'on' and homeoffice_state == true) or party_state == true) and persons_home_count | int > 0 ) or moisture_flag == true) %}
       {{ set_temp }}
     {% else %}
-      {{ min_temp }}
+      {% if min_temp_input != none %}
+        {{ states(min_temp_input) }}
+      {% else %}
+        {{ min_temp }}
+      {% endif %}
     {% endif %}
     
-  actual_local_temperature: !input 'external_temp_sensor'
+  external_temp_sensor: !input 'external_temp_sensor'
   
 trigger_variables:
   window_t: !input window
   winter_mode_t: !input winter_mode
   heat_mode_t: !input heat_mode
-  actual_local_temperature_t: !input 'external_temp_sensor'
-#  temperature_changed_t: "{{ actual_local_temperature_t != none and (as_timestamp(now()) - as_timestamp(states[actual_local_temperature_t].last_updated)) > 60  }}"
+  moisture_t: !input 'moisture_threshold'
+# temperature_changed_t: "{{ external_temp_sensor != none and (as_timestamp(now()) - as_timestamp(states[external_temp_sensor].last_updated)) > 60  }}"
 
 trigger:
-  # home assistant events
+  # home assistant eventsexternal_temp_sensor
   - platform: homeassistant
     event: start
   - platform: event
@@ -161,9 +203,18 @@ trigger:
   # schedule state changes
   - platform: state
     entity_id: !input 'scheduler'
+    id: schedule
   # peoples presence changes
   - platform: state
     entity_id: !input 'persons'
+    from: 'home'
+    to: 'not_home'
+    id: presence
+  - platform: state
+    entity_id: !input 'persons'
+    from: 'not_home'
+    to: 'home'
+    id: presence
   # window open
   - platform: template
     value_template: >-
@@ -176,50 +227,82 @@ trigger:
        {{ window_t != none and is_state(window_t, 'off') }}
     for:
       seconds: !input 'window_close_delay'
+  # moisture threshold
+  - platform: template
+    value_template: >-
+       {{ moisture_t != none and is_state(moisture_t, 'on') }}
+    for:
+      seconds: !input 'window_open_delay'
+    id: moisture
+  - platform: template
+    value_template: >-
+       {{ moisture_t != none and is_state(moisture_t, 'off') }}
+    for:
+      seconds: !input 'window_close_delay'
+    id: moisture  
   # winter_mode changes    
   - platform: template
     value_template: >-
        {{ winter_mode_t != none and is_state(winter_mode_t, 'on') }}
     for:
-      seconds: mode_change_wait
+      seconds: 2
+    id: winter
   - platform: template
     value_template: >-
        {{ winter_mode_t != none and is_state(winter_mode_t, 'off') }}
     for:
-      seconds: mode_change_wait
+      seconds: 2
+    id: winter
   # heat mode changes    
   - platform: template
     value_template: >-
        {{ heat_mode_t != none and is_state(heat_mode_t, 'on') }}
     for:
-      seconds: mode_change_wait
+      seconds: 2
+    id: 'heat'
   - platform: template
     value_template: >-
        {{ heat_mode_t != none and is_state(heat_mode_t, 'off') }}
     for:
-      seconds: mode_change_wait
+      seconds: 2
+    id: 'heat'
   # every 10 minutes 
-  - platform: time_pattern
-    minutes: "/10"
+  #- platform: time_pattern
+  #  minutes: "/10"
     
 action:
   #################################
-  # Claibration
+  # Calibration
   #################################
   - if:
     - condition: template
       value_template: "{{ trigger.platform == 'time_pattern' }}"
     - condition: template
-      value_template: "{{ actual_local_temperature != none }}"
+      value_template: "{{ external_temp_sensor != none }}"
     then:
     - repeat:
         count: "{{ valves | count | int }}"
-        sequence:              
+        sequence:    
+        - alias: "Check valve position"
+          condition: template
+          value_template: >
+            {% set valve_position = namespace(rate=[]) %}
+            {% for s in entities %}
+              {% if 'heating' in s or 'position' in s %}
+                {% set valve_position.rate = states(s)|default(0)|float  %}
+              {% endif %}
+            {% endfor %}
+            {{ valve_position.rate < 10 }}  
+        - service: system_log.write
+          data:
+            message: >
+              Using {{ external_temp_sensor }} to calibrate {{ trvs }}
+            level: debug
+            logger: blueprints.heating_control        
         - service: number.set_value
           data:
             value: >
               {% set current_valve = valves[repeat.index-1] %}
-
               {% set calibration_entity_id = namespace(id=[]) %}
               {% set entities =  device_entities(device_id(current_valve)) %} 
               {% for s in entities %}
@@ -227,13 +310,12 @@ action:
                   {% set calibration_entity_id.id = s %}
                 {% endif %}
               {% endfor %}
-
               {% set current_calibration_value = states[calibration_entity_id.id].state %}
               {% set step = states[calibration_entity_id.id].attributes.step %}
 
               {% set local_temperature = states[current_valve].attributes.current_temperature %}
               {% set actual_trv_temperature = (local_temperature | float(0) - current_calibration_value | float(0)) | round(1) %}
-              {% set actual_sensor_temperature = states[actual_local_temperature].state | float(0) | round(1) %}
+              {% set actual_sensor_temperature = states[external_temp_sensor].state | float(0) | round(1) %}
               {% set new_calibration_value =  actual_sensor_temperature - actual_trv_temperature %}
 
               {% set min_calibration_value = states[calibration_entity_id.id].attributes.min  %}
@@ -254,18 +336,36 @@ action:
                 {% endif %}
               {% endfor %}
     else:
-    - service: climate.set_hvac_mode
-      target:
-        entity_id: !input 'heating'
-      data:
-        hvac_mode: "{{ mode }}"
-
-    - condition: template
-      value_template: "{{ mode == 'auto' }}"
-    - delay: 3
-    - service: climate.set_temperature
-      data:
-        entity_id: !input 'heating'
-        temperature: "{{ temperatur | float }}"
+    - repeat:
+        count: "{{ valves | count | int }}"
+        sequence:              
+        - service: climate.set_hvac_mode
+          target:
+            entity_id: >
+              {{ valves[repeat.index-1] }}
+          data:
+            # set Tado devices to heat, otherwise the internal scheduler would be taken
+            hvac_mode: >
+              {% set current_valve = valves[repeat.index-1] %}
+              {% set manufacturer = device_attr(device_id(current_valve),'manufacturer') %}
+              {% if (manufacturer == 'Tado' and mode != 'off') %}
+                {{ "heat" }}
+              {% else %}
+                {{ mode }}
+              {% endif %}
+        - condition: and
+          conditions:
+            - condition: template
+              value_template: "{{ mode in ['auto','heat'] }}"
+            - or:
+                - condition: template
+                  value_template: "{{ trigger.platform in ['state','homeassistant','event'] }}"
+                - condition: template
+                  value_template: "{{ trigger.id in ['heat','winter','schedule','presence','moisture'] }}"
+        - delay: 3
+        - service: climate.set_temperature
+          data:
+            entity_id: !input 'heating'
+            temperature: "{{ temperatur | float }}"
           
 mode: restart
