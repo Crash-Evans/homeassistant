@@ -1,0 +1,84 @@
+blueprint:
+  name: Tado temperature offset
+  description: Ensure the Tado smart valve has the temp of a separate sensor. The action is only performed if the heating rate is under a threshold<br /> 
+    Inspired by https://gist.github.com/sanderma/1e9163c690e23bc8d32a8c9e9d89a910
+  domain: automation
+  input:
+    source_temp_sensor:
+      name: Source Temperature sensor
+      description: This sensor will be used as the source.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+          multiple: false
+
+    target_tado:
+      name: Tado
+      description: The Tado to set the offset on.
+      selector:
+        entity:
+          domain: climate
+          integration: tado
+          multiple: false
+
+    heating_threshold:
+      name: Heating Threshold
+      description: Heating percentage has to be below this value to start working
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 5
+          mode: slider
+          
+  source_url: https://gist.github.com/clemensao/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
+variables:
+  target_tado: !input 'target_tado'
+  source_temp_sensor: !input 'source_temp_sensor'
+  heating_threshold: !input 'heating_threshold'
+  tado_temp: '{{ state_attr(target_tado, "current_temperature") | float }}'
+  current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
+  actual_temp: '{{ states(source_temp_sensor) | float }}'
+  heating_rate: >
+    {% set entities = device_entities(device_id("climate.schlafzimmer") ) %}
+    {% for s in entities %}
+      {% if 'heating' in s %}
+        {{ states(s) }}
+      {% endif %}
+    {% endfor %}
+  offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
+  calculated_offset: '{{ ( ( actual_temp - tado_temp ) + current_offset ) | round(1,"common") }}'
+trigger:
+  - platform: event
+    event_type: automation_reloaded
+  - platform: state
+    entity_id: !input target_tado
+    attribute: current_temperature
+  - platform: state
+    entity_id: !input source_temp_sensor
+condition:
+  - condition: template
+    value_template: '{{ offset != 0 }}'
+  - condition: template
+    value_template: '{{ actual_temp != 0 }}'
+  - condition: template
+    value_template: '{{ heating_rate|float <= heating_threshold|float }}'
+action:
+  - service: system_log.write
+    data:
+      message: '{{ target_tado }} has temp difference of {{ offset }}. Setting offset to {{ calculated_offset }}'
+      level: info
+      logger: blueprints.tado.offset
+  - service: system_log.write
+    data:
+      message: 'target: {{ target_tado }}  source: {{ source_temp_sensor }} temp difference: {{ offset }} actual_temp: {{ actual_temp }} tado_temp: {{ tado_temp }} 
+        current_offset: {{ current_offset }} calculated_offset: {{ calculated_offset }} heating_rate: {{ heating_rate }} heating_threshold: {{ heating_threshold }}'
+      level: debug
+      logger: blueprints.tado.offset
+  - service: tado.set_climate_temperature_offset
+    data:
+      offset: '{{ calculated_offset }}'
+      entity_id: '{{ target_tado }}'
+mode: single
