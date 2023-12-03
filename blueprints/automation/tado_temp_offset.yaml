@@ -1,6 +1,8 @@
 blueprint:
   name: Tado temperature offset
-  description: Ensure the Tado smart valve has the temp of a separate sensor. The action is only performed if the heating rate is under a threshold<br /> 
+  description: Ensure the Tado smart valve has the temp of a separate sensor. The action is only performed if the heating rate is under a threshold. 
+    Trigger can be by sensor or by time pattern.
+    Optional binary sensor for daytime. At night the calibration will only fire every two hours<br /> 
     Inspired by https://gist.github.com/sanderma/1e9163c690e23bc8d32a8c9e9d89a910
   domain: automation
   input:
@@ -32,15 +34,33 @@ blueprint:
           max: 100
           step: 5
           mode: slider
+
+    trigger_sensor:
+      name: Temperature trigger
+      description: Temperature change triggers automation if set to true, otherwise a time pattern is used
+      default: false
+      selector:
+        boolean:
+
+    on_switch:
+      name: 'Daytime (optional)'
+      description: 'Switch on and off the sync, e.g. using a daytime-sensor'
+      default:
+      selector:
+        entity:
+          domain: binary_sensor
           
   source_url: https://gist.github.com/clemensao/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 variables:
   target_tado: !input 'target_tado'
   source_temp_sensor: !input 'source_temp_sensor'
   heating_threshold: !input 'heating_threshold'
-  tado_temp: '{{ state_attr(target_tado, "current_temperature") | float }}'
+  on_switch: !input 'on_switch'
+  trigger_sensor: !input 'trigger_sensor'
+  tado_temp: '{{ state_attr(target_tado, "current_temperature") | float(19) }}'
   current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
-  actual_temp: '{{ states(source_temp_sensor) | float }}'
+  actual_temp: '{{ states(source_temp_sensor) | float(19) }}'
+  run_flag: '{{ on_switch == none or (on_switch != none and is_state(on_switch, "on")) }}'
   heating_rate: >
     {% set entities = device_entities(device_id("climate.schlafzimmer") ) %}
     {% for s in entities %}
@@ -58,13 +78,30 @@ trigger:
     attribute: current_temperature
   - platform: state
     entity_id: !input source_temp_sensor
+  # time based
+  - platform: time_pattern
+    minutes: "/30"
+    id: day
+  - platform: time_pattern
+    hours: "/2"
+    id: night
 condition:
-  - condition: template
-    value_template: '{{ offset != 0 }}'
-  - condition: template
-    value_template: '{{ actual_temp != 0 }}'
-  - condition: template
-    value_template: '{{ heating_rate|float <= heating_threshold|float }}'
+  - condition: and
+    conditions:
+      - not:
+          condition: state
+          entity_id: !input target_tado
+          state: "off"
+      - condition: template
+        value_template: '{{ offset != 0 }}'
+      - condition: template
+        value_template: '{{ actual_temp != 0 }}'
+      - condition: template
+        value_template: '{{ heating_rate|float <= heating_threshold|float }}'
+      - condition: template
+        value_template: '{{ ((run_flag == true and trigger.id == "day") or trigger.id == "night") or trigger_sensor == true }}'
+      - condition: template
+        value_template: "{{ (trigger.platform in ['state','event'] and trigger_sensor == true) or trigger_sensor == false  }}"
 action:
   - service: system_log.write
     data:
