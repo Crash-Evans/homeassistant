@@ -46,7 +46,7 @@ trigger:
   - platform: state
     entity_id: !input 'switch'
     to: "on"
-action:
+condition:
   - condition: and
     conditions:
       - condition: state
@@ -54,10 +54,10 @@ action:
         state: "on"
       - condition: template
         value_template: "{{ switch != none and is_state(switch, 'on') }}"
+action:
   - service: light.turn_on
     data:
       color_name: >
-        {% set actual_temp = states(temp_sensor) %} 
         {% set colors = [ ('-50','-15','magenta'),
                           ('-15','-10','blueviolet'),
                           ('-10','-5','blue'),
@@ -70,9 +70,9 @@ action:
                           ('25','30','darkorange'),
                           ('30','35','orangered'),
                           ('35','50','red') ] %}
+        {% set actual_temp = states(temp_sensor)|default(0)|float %} 
         {% for item in colors %}
-          {% set temp = actual_temp|float %}
-          {% if temp >= item[0]|float and temp < item[1]|float %}
+          {% if actual_temp >= item[0]|float and actual_temp < item[1]|float %}
             {% set color = item[2] %}
             {{ color }}
           {% endif %}
