@@ -1,6 +1,8 @@
 blueprint:
-  name: Motion-activated Light with sun condition
-  description: Turn on a light when motion is detected and time is after sunset (use of an offset is possible).
+  name: Motion-activated Light with sun condition and optional illuminance and night condition 
+  description: Turn on a light when motion is detected and time is after sunset (use of an offset is possible).<br />
+    When the optional illuminance sensor is set, lights will turn on when illuminance is below the threshold <br />
+    At night time, the lights will dimm to brightness of 5 and when night ends initializing with 180
   domain: automation
   input:
     motion_entity:
@@ -50,9 +52,42 @@ blueprint:
       default: "00:45:00"
       selector:
         text:
+    illuminance_sensor:
+      name: Illuminance Sensor (optional)
+      default:
+      selector:
+        entity:
+          domain: sensor
+          device_class: illuminance
+          multiple: false
+    illuminance_threshold:
+      name: Illuminance threshold
+      description: Illuminance value in lux. If sensor value is below this value the lights are turned on
+      default: 10
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: lx
+          mode: slider
+          step: 1
+    night_time:
+      name: 'Nighttime'
+      description: 'Sensor that tells it is night time'
+      default:
+      selector:
+        entity:
+          domain: 
+            - binary_sensor
+            - input_boolean
   source_url: https://community.home-assistant.io/t/turn-light-on-and-off-based-on-detected-motion-with-sun-condition/266013
 mode: restart
 max_exceeded: silent
+variables:
+  light_target: !input 'light_target'
+  illuminance_sensor: !input 'illuminance_sensor'
+  illuminance_threshold: !input 'illuminance_threshold'
+  night_time: !input 'night_time'
 trigger:
   platform: state
   entity_id: !input motion_entity
@@ -67,9 +102,29 @@ condition:
   - condition: sun
     before: sunrise
     before_offset: !input sunrise_offset
+  - condition: template
+    value_template: "{{ illuminance_sensor != none and states(illuminance_sensor)|float(0) < illuminance_threshold }}"
 action:
 - service: light.turn_on
-  target: !input light_target
+  target: "{{ light_target }}"
+- wait_template: "{{ state_attr(light_target.entity_id,'brightness') != None }}"
+  continue_on_timeout: false
+- if:
+    - condition: template
+      value_template: "{{ night_time != none and is_state(night_time, 'off') and state_attr(light_target.entity_id,'brightness') < 10 }}"
+  then:
+    - service: light.turn_on
+      target: "{{ light_target }}"
+      data:
+        brightness: 180
+- if:
+    - condition: template
+      value_template: "{{ night_time != none and is_state(night_time, 'on') and state_attr(light_target.entity_id,'brightness') > 10 }}"
+  then:
+    - service: light.turn_on
+      target: "{{ light_target }}"
+      data:
+        brightness: 5
 - wait_for_trigger:
     platform: state
     entity_id: !input motion_entity
@@ -77,6 +132,6 @@ action:
     to: 'off'
 - delay: !input no_motion_wait
 - service: light.turn_off
-  target: !input light_target
+  target: "{{ light_target }}"
   data:
       transition: !input transition_time
