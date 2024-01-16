@@ -1,0 +1,118 @@
+blueprint:
+  name: Contact to switch on light/switch
+  description: 'When contact is open and light state is off then switch on the light <br />
+    When the contact closes and light has been on less than auto_close_wait seconds, switch off. <br/> 
+    When light is switched on, you can switch off by openening an closing within 2 seconds.'
+  domain: automation
+  input:
+    contact_entity:
+      name: Contact Sensor
+      selector:
+        entity:
+          domain: binary_sensor
+          device_class: 
+            - door
+            - window
+          multiple: false
+    switch_target:
+      name: Switches or Lights
+      selector:
+        target:
+          entity:
+            domain: 
+              - switch
+              - light
+    auto_close_wait:
+      name: Auto close interval
+      description: Time in seconds. When the contact closes and light has been on less than this value, it is switch off.
+      default: 25
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: seconds
+          mode: slider
+          step: 1.0
+    night_time:
+      name: 'Nighttime'
+      description: 'Sensor that tells it is night time, so the switch will NOT be turned on'
+      selector:
+        entity:
+          domain: 
+            - binary_sensor
+            - input_boolean
+mode: restart
+max_exceeded: silent
+variables:
+  contact_entity: !input 'contact_entity' 
+  switch_target: !input 'switch_target'
+  night_time: !input 'night_time'
+  auto_close_wait: !input 'auto_close_wait'
+trigger:
+  - platform: state
+    entity_id: !input 'contact_entity'
+    from: 'off'
+    to: 'on'
+    id: open
+  - platform: state
+    entity_id: !input 'contact_entity'
+    from: 'on'
+    to: 'off'
+    id: closed
+condition:
+  - condition: and
+    conditions:
+      - condition: state
+        entity_id: sun.sun
+        state: below_horizon
+      - condition: template
+        value_template: "{{ night_time != none and is_state(night_time, 'off') }}"
+action:
+  - if:
+      - condition: trigger
+        id:
+          - open
+    then:
+      - if:
+          - condition: template
+            value_template: "{{  expand(switch_target.entity_id)  | selectattr('state', 'eq', 'off') | list | count > 0 }}"
+        then:
+          # switch it on baby!
+          - service: switch.turn_on
+            target: "{{ switch_target }}"
+          - service: light.turn_on
+            target: "{{ switch_target }}"
+        else:
+          # switch off by openening and closing within 2 seconds
+          - wait_for_trigger:
+              - platform: state
+                entity_id: !input 'contact_entity'
+                to: "off"
+            timeout:
+              hours: 0
+              minutes: 0
+              seconds: 2
+              milliseconds: 0
+            continue_on_timeout: false
+          - service: switch.turn_off
+            data: {}
+            target: "{{ switch_target }}"
+          - service: light.turn_off
+            data: {}
+            target: "{{ switch_target }}"
+          
+    else:
+      # switch when door is opened and closed within 25 seconds
+      - if:
+          - condition: template
+            value_template: "{{ expand(switch_target.entity_id) | selectattr('last_changed', '>', now() - timedelta(seconds=auto_close_wait)) | list | count > 0 }}"
+        then:
+          - delay:
+              hours: 0
+              minutes: 0
+              seconds: 15
+              milliseconds: 0
+          - service: switch.turn_off
+            target: "{{ switch_target }}"
+          - service: light.turn_off
+            target: "{{ switch_target }}"
