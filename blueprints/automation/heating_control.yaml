@@ -98,13 +98,13 @@ blueprint:
           domain: schedule
           multiple: false
 
-    use_scheduler:
-      name: 'Use scheduler (optional)'
-      description: 'Global helper switch for using the scheduler. If e. g. you want to sleep in, set it to false (optional).'
+    alarm_time:
+      name: 'Next time the alarm clock rings (optional)'
+      description: 'Use a sensor for alarm time to determine whether you want to sleep in or work (optional).'
       default:
       selector:
         entity:
-          domain: input_boolean
+          device_class: timestamp
     
     home_office:
       name: 'Working at home (optional)'
@@ -198,8 +198,6 @@ variables:
   external_temp_sensor: !input 'external_temp_sensor'
   # switches
   scheduler: !input 'scheduler'
-  use_scheduler_input: !input 'use_scheduler'
-  use_scheduler: "{{ use_scheduler_input == none or is_state(use_scheduler_input, 'on') }}" 
   winter_mode: !input 'winter_mode'
   winter_state: "{{ winter_mode == none or is_state(winter_mode, 'on') }}"
   heat_mode: !input 'heat_mode'
@@ -208,17 +206,22 @@ variables:
   homeoffice_state: "{{ home_office == none or (home_office != none and is_state(home_office, 'on')) }}"
   night_time: !input 'night_time'
   night_state: "{{ night_time != none and is_state(night_time, 'on') }}"
+  alarm_time: !input 'alarm_time'
+  pre_alarm_time: >
+    {% set pre_alarm = false %}
+    {% if alarm_time != none %}
+      {% set next_alarm = states(alarm_time) %}
+      {% if next_alarm not in ['unknown','unavailable'] and now() >= (as_local(as_datetime(next_alarm)) - timedelta(minutes=45)) %} 
+        {% set pre_alarm = true %}
+      {% endif %}
+    {% endif %}
+    {{ night_state == true and alarm_time != none and pre_alarm }}
+  use_scheduler: "{{ alarm_time == none or night_state == false or pre_alarm_time == true }}" 
   mode: >
     {% if (winter_state == true or force_heat_state == true) and window_state == false %}
       auto
     {% else %}
       off
-    {% endif %}
-  night_temperature: >
-    {% if night_state == true and night_temp != none %}
-      {{ states(night_temp) }}
-    {% else %}
-      16
     {% endif %}
   temperature: >  
     {% if ((((states(scheduler) == 'on' and homeoffice_state == true and use_scheduler == true) or force_heat_state == true) and persons_home_count | int > 0 ) or moisture_flag == true) %}
@@ -245,7 +248,7 @@ trigger_variables:
   night_time_t: !input night_time
   night_temp_t: !input night_temp_input
   eco_temp_t: !input min_temp_input
-  use_scheduler_t: !input use_scheduler 
+  alarm_time_t: !input alarm_time 
 
 # temperature_changed_t: "{{ external_temp_sensor != none and (as_timestamp(now()) - as_timestamp(states[external_temp_sensor].last_updated)) > 60  }}"
 
@@ -260,16 +263,19 @@ trigger:
     entity_id: !input 'scheduler'
     id: schedule
   - platform: template
-    value_template: >-
-       {{ use_scheduler_t != none and is_state(use_scheduler_t, 'on') }}
+    value_template: >
+      {%  if alarm_time_t != none %}
+        {% set next_alarm = states(alarm_time_t) %}
+        {% if next_alarm in ['unknown','unavailable'] or now() < (as_local(as_datetime(next_alarm)) - timedelta(minutes=45)) %} 
+          false
+        {% else %}
+          true
+        {% endif %}
+      {% else %}
+        false
+      {% endif %}
     for:
-      seconds: 2
-    id: schedule
-  - platform: template
-    value_template: >-
-       {{ use_scheduler_t != none and is_state(use_scheduler_t, 'off') }}
-    for:
-      seconds: 2
+      seconds: 1
     id: schedule
   # peoples presence changes
   - platform: state
@@ -457,19 +463,10 @@ action:
                   value_template: "{{ trigger.platform in ['state','homeassistant','event'] }}"
                 - condition: template
                   value_template: "{{ trigger.id in ['heat','winter','schedule','presence','moisture','night','morning','temp_preset'] }}"
-        - delay: 3
-        - if:
-            - condition: trigger
-              id: night
-          then:
-            - service: climate.set_temperature
-              data:
-                entity_id: !input 'heating'
-                temperature: "{{ night_temperature | float }}"
-          else:
-            - service: climate.set_temperature
-              data:
-                entity_id: !input 'heating'
-                temperature: "{{ temperature | float }}"
+        - delay: 3 
+        - service: climate.set_temperature
+          data:
+            entity_id: !input 'heating'
+            temperature: "{{ temperature | float }}"
           
 mode: restart
