@@ -38,7 +38,7 @@ blueprint:
           min: 0.0
           max: 30.0
           unit_of_measurement: seconds
-          mode: slider
+          mode: box
           step: 0.5
     sunset_offset:
       name: Offset to turn on lights
@@ -69,6 +69,16 @@ blueprint:
           min: 0
           max: 300
           unit_of_measurement: lx
+          mode: box
+          step: 1
+    brightness_day:
+      name: Brightness day
+      description: brightness during daytime
+      default: 180
+      selector:
+        number:
+          min: 0
+          max: 255
           mode: slider
           step: 1
     night_time:
@@ -87,6 +97,7 @@ variables:
   light_target: !input 'light_target'
   illuminance_sensor: !input 'illuminance_sensor'
   illuminance_threshold: !input 'illuminance_threshold'
+  brightness_day: !input 'brightness_day'
   night_time: !input 'night_time'
 trigger:
   platform: state
@@ -116,7 +127,7 @@ action:
     - service: light.turn_on
       target: "{{ light_target }}"
       data:
-        brightness: 180
+        brightness: "{{ brightness_day }}"
 - if:
     - condition: template
       value_template: "{{ night_time != none and is_state(night_time, 'on') and state_attr(light_target.entity_id,'brightness') > 10 }}"
