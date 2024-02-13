@@ -42,25 +42,27 @@ blueprint:
       selector:
         boolean:
 
-    on_switch:
-      name: 'Daytime (optional)'
-      description: 'Switch on and off the sync, e.g. using a daytime-sensor'
+    night_switch:
+      name: 'Nighttime (optional)'
+      description: 'At nighttime the sync rate is reduced to every 2 hours'
       default:
       selector:
         entity:
-          domain: binary_sensor
+          domain: 
+            - binary_sensor
+            - input_boolean
           
   source_url: https://gist.github.com/clemensao/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 variables:
   target_tado: !input 'target_tado'
   source_temp_sensor: !input 'source_temp_sensor'
   heating_threshold: !input 'heating_threshold'
-  on_switch: !input 'on_switch'
+  night_switch: !input 'night_switch'
   trigger_sensor: !input 'trigger_sensor'
   tado_temp: '{{ state_attr(target_tado, "current_temperature") | float(19) }}'
   current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
   actual_temp: '{{ states(source_temp_sensor) | float(19) }}'
-  run_flag: '{{ on_switch == none or (on_switch != none and is_state(on_switch, "on")) }}'
+  run_flag: '{{ night_switch == none or (night_switch != none and is_state(night_switch, "off")) }}'
   heating_rate: >
     {% set entities = device_entities(device_id("climate.schlafzimmer") ) %}
     {% for s in entities %}
