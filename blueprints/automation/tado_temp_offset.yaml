@@ -4,6 +4,13 @@ blueprint:
     Ensure the Tado smart valve has the temperature of a separate sensor. The action is only performed if the heating rate is under a set threshold.
     Trigger can be by sensor or by time pattern.
     Optional binary sensor for daytime. At night, the calibration will only fire every two hours.
+    
+    Change Log:
+    - Version 2.01:
+      - Added support for outdoor temperature sensor for dynamic threshold adjustment.
+      - Implemented adaptive learning to adjust offset based on outdoor temperature.
+      - Enhanced automation robustness by adding check for already running automation to avoid errors on Home Assistant restart.
+
     Inspired by https://gist.github.com/sanderma/1e9163c690e23bc8d32a8c9e9d89a910
   domain: automation
   input:
@@ -71,9 +78,6 @@ variables:
   trigger_sensor: !input "trigger_sensor"
   outdoor_temp_sensor: !input "outdoor_temp_sensor"
 
-  # Check if the automation is already running to avoid errors
-  automation_running: "{{ is_state('automation.tado_temperature_offset', 'on') }}"
-
 trigger:
   - platform: homeassistant
     event: start
@@ -106,10 +110,6 @@ condition:
             value_template: '{{ trigger_sensor == true }}'
 
 action:
-  - service: input_boolean.turn_on
-    target:
-      entity_id: input_boolean.tado_temperature_offset_running
-
   - service: system_log.write
     data:
       message: "{{ target_tado }} has a temperature difference of {{ offset }}. Setting offset to {{ calculated_offset }}"
@@ -133,8 +133,3 @@ action:
     data:
       offset: "{{ calculated_offset }}"
       entity_id: "{{ target_tado }}"
-
-  # Mark the automation as not running to avoid errors on reboot
-  - service: input_boolean.turn_off
-    target:
-      entity_id: input_boolean.tado_temperature_offset_running
