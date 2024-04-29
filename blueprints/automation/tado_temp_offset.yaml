@@ -4,7 +4,6 @@ blueprint:
     Ensure the Tado smart valve has the temperature of a separate sensor. The action is only performed if the heating rate is under a set threshold.
     Trigger can be by sensor or by time pattern.
     Optional binary sensor for daytime. At night, the calibration will only fire every two hours.
-
     Inspired by https://gist.github.com/sanderma/1e9163c690e23bc8d32a8c9e9d89a910
   domain: automation
   input:
@@ -71,7 +70,7 @@ variables:
       0
     {%- else -%}
       {{ rate | float }}
-    {%- endif -%}'
+    {%- endif -%}
   offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
   calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
 
@@ -99,7 +98,7 @@ condition:
           entity_id: !input target_tado
           state: "off"
       - condition: template
-        value_template: "{{ offset != 0 and actual_temp != 0 and heating_rate <= heating_threshold }}"
+        value_template: "{{ offset != 0 and actual_temp != 0 and heating_rate | int <= heating_threshold }}"
       - condition: or
         conditions:
           - condition: template
