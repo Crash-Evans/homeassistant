@@ -23,7 +23,7 @@ blueprint:
           domain: input_select
       default: []
 
-  source_url: https://github.com/Crash-Evans/homeassistant/edit/main/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
   # Modify heating_threshold to adjust based on outdoor temperature dynamically
