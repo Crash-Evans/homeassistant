@@ -7,7 +7,7 @@ blueprint:
     # Add inputs for dynamic threshold adjustment
     outdoor_temperature_sensor:
       name: Outdoor Temperature Sensor
-      description: Sensor providing outdoor temperature data for dynamic threshold adjustment.
+      Description: The sensor provides outdoor temperature data for dynamic threshold adjustment.
       selector:
         entity:
           domain: sensor
@@ -26,7 +26,7 @@ blueprint:
   source_url: https://github.com/Crash-Evans/homeassistant/edit/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
-  # Modify heating_threshold to dynamically adjust based on outdoor temperature
+  # Modify heating_threshold to adjust based on outdoor temperature dynamically
   heating_threshold: >-
     {%- set base_threshold = 25 %}
     {%- set outdoor_temp = state_attr(outdoor_temperature_sensor, "temperature") | float %}
@@ -78,4 +78,11 @@ action:
           - conditions: "{{ zone.name }}_learning_enabled is undefined or {{ zone.name }}_learning_enabled == false"
             sequence: []
 
-mode: single
+metadata:
+  version: "2.0"
+  changelog:
+    - "Added advanced temperature control features."
+    - "Implemented dynamic threshold adjustment based on outdoor temperature."
+    - "Introduced adaptive learning capabilities."
+    - "Enabled multi-zone support."
+    - "Updated source URL for direct editing on GitHub."
