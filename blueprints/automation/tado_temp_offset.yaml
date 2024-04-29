@@ -53,7 +53,7 @@ blueprint:
             - binary_sensor
             - input_boolean
 
-  source_url: https://gist.github.com/clemensao/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
   target_tado: !input "target_tado"
@@ -65,7 +65,7 @@ variables:
   current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
   actual_temp: "{{ states(source_temp_sensor) | float }}"
   run_flag: '{{ night_switch is not none and is_state(night_switch, "off") }}'
-  heating_rate: '{{ state_attr(target_tado, "heating_rate") | float }}'  # Adjust based on Tado's attributes
+  heating_rate: '{{ state_attr(target_tado, "heating_rate") | default(0) | float }}'  # Handle error gracefully
   offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
   calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
 
