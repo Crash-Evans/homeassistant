@@ -68,6 +68,22 @@ blueprint:
       selector:
         boolean:
 
+    outdoor_temperature_sensor:
+      name: Outdoor Temperature Sensor
+      description: The sensor provides outdoor temperature data for dynamic threshold adjustment.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+          multiple: false
+
+    multi_zone:
+      name: Multi-Zone Support
+      description: Enable multi-zone support for controlling multiple Tado devices simultaneously.
+      default: false
+      selector:
+        boolean:
+
   source_url: https://github.com/Crash-Evans/homeassistant/edit/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
