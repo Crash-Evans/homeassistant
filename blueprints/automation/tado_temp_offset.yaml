@@ -1,23 +1,14 @@
 blueprint:
-  name: Advanced Tado Temperature Control
+  name: Tado temperature offset
   description: |
     Ensure the Tado smart valve has the temperature of a separate sensor. The action is only performed if the heating rate is under a set threshold.
     Trigger can be by sensor or by time pattern.
     Optional binary sensor for daytime. At night, the calibration will only fire every two hours.
-    Advanced features include dynamic threshold adjustment, adaptive learning, multi-zone support, and sleep mode to limit changes at night.
-    
-    **Change Log:**
-    - Added advanced temperature control features.
-    - Implemented dynamic threshold adjustment based on outdoor temperature.
-    - Introduced adaptive learning capabilities.
-    - Enabled multi-zone support.
-    - Added sleep mode feature to limit changes at night.
-    - Updated source URL for direct editing on GitHub.
-    
+    Inspired by https://gist.github.com/sanderma/1e9163c690e23bc8d32a8c9e9d89a910
   domain: automation
   input:
     source_temp_sensor:
-      name: Source Temperature Sensor
+      name: Source Temperature sensor
       description: This sensor will be used as the source.
       selector:
         entity:
@@ -46,7 +37,7 @@ blueprint:
           mode: slider
 
     trigger_sensor:
-      name: Temperature Trigger
+      name: Temperature trigger
       description: Temperature change triggers automation if set to true, otherwise a time pattern is used
       default: false
       selector:
@@ -61,30 +52,16 @@ blueprint:
             - binary_sensor
             - input_boolean
 
-    sleep_mode:
-      name: Sleep Mode
-      description: Enable sleep mode to limit changes at night
-      default: false
-      selector:
-        boolean:
-
-    outdoor_temperature_sensor:
+    outdoor_temp_sensor:
       name: Outdoor Temperature Sensor
-      description: The sensor provides outdoor temperature data for dynamic threshold adjustment.
+      description: Sensor providing outdoor temperature data for dynamic threshold adjustment.
       selector:
         entity:
           domain: sensor
           device_class: temperature
           multiple: false
 
-    multi_zone:
-      name: Multi-Zone Support
-      description: Enable multi-zone support for controlling multiple Tado devices simultaneously.
-      default: false
-      selector:
-        boolean:
-
-  source_url: https://github.com/Crash-Evans/homeassistant/edit/main/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
   target_tado: !input "target_tado"
@@ -92,37 +69,23 @@ variables:
   heating_threshold: !input "heating_threshold"
   night_switch: !input "night_switch"
   trigger_sensor: !input "trigger_sensor"
-  tado_temp: '{{ state_attr(target_tado, "current_temperature") | float }}'  # Fetch dynamically
-  current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
-  actual_temp: "{{ states(source_temp_sensor) | float }}"
-  run_flag: '{{ night_switch is not none and is_state(night_switch, "off") }}'
-  heating_rate: >-
-    {%- set rate = state_attr(target_tado, "heating_rate") -%}
-    {%- if rate is none -%}
-      0
-    {%- else -%}
-      {{ rate | float }}
-    {%- endif -%}
-  offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
-  calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
+  outdoor_temp_sensor: !input "outdoor_temp_sensor"
+
+  # Check if the automation is already running to avoid errors
+  automation_running: "{{ is_state('automation.tado_temperature_offset', 'on') }}"
 
 trigger:
-  - platform: event
-    event_type: automation_reloaded
-  - platform: state
-    entity_id: !input target_tado
-    attribute: current_temperature
-  - platform: state
-    entity_id: !input source_temp_sensor
-  # time based
-  - platform: time_pattern
-    minutes: "/30"
-    id: day
-  - platform: time_pattern
-    hours: "/2"
-    id: night
+  - platform: homeassistant
+    event: start
 
 condition:
+  # Check if the automation is already running to avoid errors
+  - condition: not
+    conditions:
+      - condition: state
+        entity_id: automation.tado_temperature_offset
+        state: 'on'
+
   - condition: and
     conditions:
       - not:
@@ -130,17 +93,23 @@ condition:
           entity_id: !input target_tado
           state: "off"
       - condition: template
+        value_template: "{{ trigger.event.data.entity_id == source_temp_sensor or trigger.event.data.entity_id == target_tado }}"
+      - condition: template
         value_template: "{{ offset != 0 and actual_temp != 0 and heating_rate | int <= heating_threshold }}"
       - condition: or
         conditions:
           - condition: template
             value_template: '{{ run_flag and trigger_sensor == false }}'
           - condition: template
-            value_template: '{{ (run_flag and trigger.id == "day") or trigger.id == "night" }}'
+            value_template: '{{ (run_flag and trigger.event.data.new_state.entity_id == "day") or trigger.event.data.new_state.entity_id == "night" }}'
           - condition: template
             value_template: '{{ trigger_sensor == true }}'
 
 action:
+  - service: input_boolean.turn_on
+    target:
+      entity_id: input_boolean.tado_temperature_offset_running
+
   - service: system_log.write
     data:
       message: "{{ target_tado }} has a temperature difference of {{ offset }}. Setting offset to {{ calculated_offset }}"
@@ -164,4 +133,8 @@ action:
     data:
       offset: "{{ calculated_offset }}"
       entity_id: "{{ target_tado }}"
-mode: single
+
+  # Mark the automation as not running to avoid errors on reboot
+  - service: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.tado_temperature_offset_running
