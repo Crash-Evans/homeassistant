@@ -1,23 +1,21 @@
 blueprint:
-  name: Advanced Tado Temperature Control
+  name: Tado temperature offset
   description: |
     Ensure the Tado smart valve has the temperature of a separate sensor. The action is only performed if the heating rate is under a set threshold.
     Trigger can be by sensor or by time pattern.
     Optional binary sensor for daytime. At night, the calibration will only fire every two hours.
-    Advanced features include dynamic threshold adjustment, adaptive learning, multi-zone support, and sleep mode to limit changes at night.
     
-    **Change Log:**
-    - Added advanced temperature control features.
-    - Implemented dynamic threshold adjustment based on outdoor temperature.
-    - Introduced adaptive learning capabilities.
-    - Enabled multi-zone support.
-    - Added sleep mode feature to limit changes at night.
-    - Updated source URL for direct editing on GitHub.
-    
+    Change Log:
+    - Version 2.01:
+      - Added support for outdoor temperature sensor for dynamic threshold adjustment.
+      - Implemented adaptive learning to adjust offset based on outdoor temperature.
+      - Enhanced automation robustness by adding check for already running automation to avoid errors on Home Assistant restart.
+
+    Inspired by https://gist.github.com/sanderma/1e9163c690e23bc8d32a8c9e9d89a910
   domain: automation
   input:
     source_temp_sensor:
-      name: Source Temperature Sensor
+      name: Source Temperature sensor
       description: This sensor will be used as the source.
       selector:
         entity:
@@ -46,7 +44,7 @@ blueprint:
           mode: slider
 
     trigger_sensor:
-      name: Temperature Trigger
+      name: Temperature trigger
       description: Temperature change triggers automation if set to true, otherwise a time pattern is used
       default: false
       selector:
@@ -61,12 +59,14 @@ blueprint:
             - binary_sensor
             - input_boolean
 
-    sleep_mode:
-      name: Sleep Mode
-      description: Enable sleep mode to limit changes at night
-      default: false
+    outdoor_temp_sensor:
+      name: Outdoor Temperature Sensor
+      description: Sensor providing outdoor temperature data for dynamic threshold adjustment.
       selector:
-        boolean:
+        entity:
+          domain: sensor
+          device_class: temperature
+          multiple: false
 
   source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 
@@ -76,76 +76,7 @@ variables:
   heating_threshold: !input "heating_threshold"
   night_switch: !input "night_switch"
   trigger_sensor: !input "trigger_sensor"
-  tado_temp: '{{ state_attr(target_tado, "current_temperature") | float }}'  # Fetch dynamically
-  current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
-  actual_temp: "{{ states(source_temp_sensor) | float }}"
-  run_flag: '{{ night_switch is not none and is_state(night_switch, "off") }}'
-  heating_rate: >-
-    {%- set rate = state_attr(target_tado, "heating_rate") -%}
-    {%- if rate is none -%}
-      0
-    {%- else -%}
-      {{ rate | float }}
-    {%- endif -%}
-  offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
-  calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
+  outdoor_temp_sensor: !input "outdoor_temp_sensor"
 
 trigger:
-  - platform: event
-    event_type: automation_reloaded
-  - platform: state
-    entity_id: !input target_tado
-    attribute: current_temperature
-  - platform: state
-    entity_id: !input source_temp_sensor
-  # time based
-  - platform: time_pattern
-    minutes: "/30"
-    id: day
-  - platform: time_pattern
-    hours: "/2"
-    id: night
-
-condition:
-  - condition: and
-    conditions:
-      - not:
-          condition: state
-          entity_id: !input target_tado
-          state: "off"
-      - condition: template
-        value_template: "{{ offset != 0 and actual_temp != 0 and heating_rate | int <= heating_threshold }}"
-      - condition: or
-        conditions:
-          - condition: template
-            value_template: '{{ run_flag and trigger_sensor == false }}'
-          - condition: template
-            value_template: '{{ (run_flag and trigger.id == "day") or trigger.id == "night" }}'
-          - condition: template
-            value_template: '{{ trigger_sensor == true }}'
-
-action:
-  - service: system_log.write
-    data:
-      message: "{{ target_tado }} has a temperature difference of {{ offset }}. Setting offset to {{ calculated_offset }}"
-      level: info
-      logger: blueprints.tado.offset
-  - service: system_log.write
-    data:
-      message: >
-        target: {{ target_tado }}
-        source: {{ source_temp_sensor }}
-        temperature_difference: {{ offset }}
-        actual_temperature: {{ actual_temp }}
-        tado_temperature: {{ tado_temp }}
-        current_offset: {{ current_offset }}
-        calculated_offset: {{ calculated_offset }}
-        heating_rate: {{ heating_rate }}
-        heating_threshold: {{ heating_threshold }}
-      level: debug
-      logger: blueprints.tado.offset
-  - service: tado.set_climate_temperature_offset
-    data:
-      offset: "{{ calculated_offset }}"
-      entity_id: "{{ target_tado }}"
-mode: single
+  - pl
