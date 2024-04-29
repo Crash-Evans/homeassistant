@@ -32,7 +32,7 @@ blueprint:
           device_class: temperature
           multiple: true
 
-  source_url: https://github.com/Crash-Evans/homeassistant/edit/main/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
   # Modify heating_threshold to dynamically adjust based on outdoor temperature
