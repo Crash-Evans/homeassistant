@@ -65,7 +65,13 @@ variables:
   current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
   actual_temp: "{{ states(source_temp_sensor) | float }}"
   run_flag: '{{ night_switch is not none and is_state(night_switch, "off") }}'
-  heating_rate: '{{ state_attr(target_tado, "heating_rate") | default(0) | float }}'  # Handle error gracefully
+  heating_rate: >-
+    {%- set rate = state_attr(target_tado, "heating_rate") -%}
+    {%- if rate is none -%}
+      0
+    {%- else -%}
+      {{ rate | float }}
+    {%- endif -%}'
   offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
   calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
 
