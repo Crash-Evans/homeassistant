@@ -1,7 +1,7 @@
 blueprint:
   name: Tado temperature offset
   description: |
-    Ensure the Tado smart valve has the temperature of a separate sensor. The action is only performed if the heating rate is under a threshold.
+    Ensure the Tado smart valve has the temperature of a separate sensor. The action is only performed if the heating rate is under a set threshold.
     Trigger can be by sensor or by time pattern.
     Optional binary sensor for daytime. At night, the calibration will only fire every two hours.
 
