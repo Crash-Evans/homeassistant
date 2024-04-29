@@ -12,7 +12,6 @@ blueprint:
     
   domain: automation
   input:
-    # Add inputs for dynamic threshold adjustment
     outdoor_temperature_sensor:
       name: Outdoor Temperature Sensor
       description: The sensor provides outdoor temperature data for dynamic threshold adjustment.
@@ -21,21 +20,20 @@ blueprint:
           domain: sensor
           device_class: temperature
           multiple: false
+        instruction: Select the sensor that provides outdoor temperature data.
 
-    # Add inputs for multi-zone support
     zones:
       name: Zones
       description: List of zones to control with their respective temperature sensors and Tado devices.
       selector:
         entity:
-          domain: sensor
-          device_class: temperature
-          multiple: true
+          domain: group
+      multiple: true
+      instruction: Select the groups that represent the zones to control. Each group should contain both a temperature sensor and a Tado device.
 
-  source_url: https://github.com/Crash-Evans/homeassistant/main/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
-  # Modify heating_threshold to dynamically adjust based on outdoor temperature
   heating_threshold: >-
     {%- set base_threshold = 25 %}
     {%- set outdoor_temp = state_attr(outdoor_temperature_sensor, "temperature") | float %}
@@ -43,49 +41,36 @@ variables:
 
 trigger:
   - platform: time_pattern
-    minutes: "/15"  # Adjust trigger frequency for adaptive learning
+    minutes: "/15"
 
 condition: []
 
 action:
-  - choose:
-      # Implement adaptive learning for each zone
-      - conditions: "{{ zone.name }}_learning_enabled == true"
-        sequence:
-          - service: script.train_temperature_prediction_model
-            data:
-              zone: "{{ zone.name }}"
-              temperature_sensor: "{{ zone.temperature_sensor }}"
-              tado_device: "{{ zone.tado_device }}"
-          - service: script.adjust_heating_threshold
-            data:
-              zone: "{{ zone.name }}"
-              outdoor_temperature_sensor: "{{ outdoor_temperature_sensor }}"
-              heating_threshold: "{{ heating_threshold }}"
-          # Add additional actions for adaptive learning
-
-      # Implement basic temperature control for each zone
-      - conditions: "{{ zone.name }}_learning_enabled == false"
-        sequence:
-          - service: climate.set_temperature
-            target:
-              entity_id: "{{ zone.tado_device }}"
-            data:
-              temperature: "{{ zone.desired_temperature }}"
-            # Add additional actions for basic temperature control
-
-    # Iterate over each zone
-    sequence:
-      - variables:
-          zone: "{{ zone }}"
-        choose:
-          # Check if adaptive learning is enabled for the zone
-          - conditions: "{{ zone.name }}_learning_enabled is defined and {{ zone.name }}_learning_enabled == true"
-            sequence: []
-
-          # If adaptive learning is not enabled, proceed with basic temperature control
-          - conditions: "{{ zone.name }}_learning_enabled is undefined or {{ zone.name }}_learning_enabled == false"
-            sequence: []
+  - repeat:
+      count: "{{ expand(zones) | length }}"
+      sequence:
+        - variables:
+            zone: "{{ expand(zones)[repeat.index] }}"
+          choose:
+            - conditions: "{{ zone.name }}_learning_enabled is defined and {{ zone.name }}_learning_enabled == true"
+              sequence:
+                - service: script.train_temperature_prediction_model
+                  data:
+                    zone: "{{ zone.name }}"
+                    temperature_sensor: "{{ state_attr(zone, 'temperature_sensor') }}"
+                    tado_device: "{{ state_attr(zone, 'tado_device') }}"
+                - service: script.adjust_heating_threshold
+                  data:
+                    zone: "{{ zone.name }}"
+                    outdoor_temperature_sensor: "{{ outdoor_temperature_sensor }}"
+                    heating_threshold: "{{ heating_threshold }}"
+            - conditions: "{{ zone.name }}_learning_enabled is undefined or {{ zone.name }}_learning_enabled == false"
+              sequence:
+                - service: climate.set_temperature
+                  target:
+                    entity_id: "{{ state_attr(zone, 'tado_device') }}"
+                  data:
+                    temperature: "{{ state_attr(zone, 'desired_temperature') }}"
 
 metadata:
   version: "2.0"
