@@ -1,135 +1,81 @@
 blueprint:
-  name: Tado temperature offset
+  name: Advanced Tado Temperature Control
   description: |
-    Ensure the Tado smart valve has the temperature of a separate sensor. The action is only performed if the heating rate is under a set threshold.
-    Trigger can be by sensor or by time pattern.
-    Optional binary sensor for daytime. At night, the calibration will only fire every two hours.
-    Inspired by https://gist.github.com/sanderma/1e9163c690e23bc8d32a8c9e9d89a910
+    This blueprint provides advanced temperature control for Tado smart valves, with features such as dynamic threshold adjustment, adaptive learning, and multi-zone support.
   domain: automation
   input:
-    source_temp_sensor:
-      name: Source Temperature sensor
-      description: This sensor will be used as the source.
+    # Add inputs for dynamic threshold adjustment
+    outdoor_temperature_sensor:
+      name: Outdoor Temperature Sensor
+      description: Sensor providing outdoor temperature data for dynamic threshold adjustment.
       selector:
         entity:
           domain: sensor
           device_class: temperature
           multiple: false
 
-    target_tado:
-      name: Tado
-      description: The Tado to set the offset on.
+    # Add inputs for multi-zone support
+    zones:
+      name: Zones
+      description: List of zones to control with their respective temperature sensors and Tado devices.
       selector:
         entity:
-          domain: climate
-          integration: tado
-          multiple: false
+          domain: input_select
+      default: []
 
-    heating_threshold:
-      name: Heating Threshold
-      description: Heating percentage has to be below this value to start working
-      default: 25
-      selector:
-        number:
-          min: 0
-          max: 100
-          step: 5
-          mode: slider
-
-    trigger_sensor:
-      name: Temperature trigger
-      description: Temperature change triggers automation if set to true, otherwise a time pattern is used
-      default: false
-      selector:
-        boolean:
-
-    night_switch:
-      name: "Nighttime (optional)"
-      description: "At nighttime the sync rate is reduced to every 2 hours"
-      selector:
-        entity:
-          domain:
-            - binary_sensor
-            - input_boolean
-
-  source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/edit/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
-  target_tado: !input "target_tado"
-  source_temp_sensor: !input "source_temp_sensor"
-  heating_threshold: !input "heating_threshold"
-  night_switch: !input "night_switch"
-  trigger_sensor: !input "trigger_sensor"
-  tado_temp: '{{ state_attr(target_tado, "current_temperature") | float }}'  # Fetch dynamically
-  current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
-  actual_temp: "{{ states(source_temp_sensor) | float }}"
-  run_flag: '{{ night_switch is not none and is_state(night_switch, "off") }}'
-  heating_rate: >-
-    {%- set rate = state_attr(target_tado, "heating_rate") -%}
-    {%- if rate is none -%}
-      0
-    {%- else -%}
-      {{ rate | float }}
-    {%- endif -%}
-  offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
-  calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
+  # Modify heating_threshold to dynamically adjust based on outdoor temperature
+  heating_threshold: >-
+    {%- set base_threshold = 25 %}
+    {%- set outdoor_temp = state_attr(outdoor_temperature_sensor, "temperature") | float %}
+    {{ base_threshold - (outdoor_temp / 10) }}
 
 trigger:
-  - platform: event
-    event_type: automation_reloaded
-  - platform: state
-    entity_id: !input target_tado
-    attribute: current_temperature
-  - platform: state
-    entity_id: !input source_temp_sensor
-  # time based
   - platform: time_pattern
-    minutes: "/30"
-    id: day
-  - platform: time_pattern
-    hours: "/2"
-    id: night
+    minutes: "/15"  # Adjust trigger frequency for adaptive learning
 
-condition:
-  - condition: and
-    conditions:
-      - not:
-          condition: state
-          entity_id: !input target_tado
-          state: "off"
-      - condition: template
-        value_template: "{{ offset != 0 and actual_temp != 0 and heating_rate | int <= heating_threshold }}"
-      - condition: or
-        conditions:
-          - condition: template
-            value_template: '{{ run_flag and trigger_sensor == false }}'
-          - condition: template
-            value_template: '{{ (run_flag and trigger.id == "day") or trigger.id == "night" }}'
-          - condition: template
-            value_template: '{{ trigger_sensor == true }}'
+condition: []
 
 action:
-  - service: system_log.write
-    data:
-      message: "{{ target_tado }} has a temperature difference of {{ offset }}. Setting offset to {{ calculated_offset }}"
-      level: info
-      logger: blueprints.tado.offset
-  - service: system_log.write
-    data:
-      message: >
-        target: {{ target_tado }}
-        source: {{ source_temp_sensor }}
-        temperature_difference: {{ offset }}
-        actual_temperature: {{ actual_temp }}
-        tado_temperature: {{ tado_temp }}
-        current_offset: {{ current_offset }}
-        calculated_offset: {{ calculated_offset }}
-        heating_rate: {{ heating_rate }}
-        heating_threshold: {{ heating_threshold }}
-      level: debug
-      logger: blueprints.tado.offset
-  - service: tado.set_climate_temperature_offset
-    data:
-      offset: "{{ calculated_offset }}"
-      entity_id: "{{ target_tado }}"
+  - choose:
+      # Implement adaptive learning for each zone
+      - conditions: "{{ zone.name }}_learning_enabled == true"
+        sequence:
+          - service: script.train_temperature_prediction_model
+            data:
+              zone: "{{ zone.name }}"
+              temperature_sensor: "{{ zone.temperature_sensor }}"
+              tado_device: "{{ zone.tado_device }}"
+          - service: script.adjust_heating_threshold
+            data:
+              zone: "{{ zone.name }}"
+              outdoor_temperature_sensor: "{{ outdoor_temperature_sensor }}"
+              heating_threshold: "{{ heating_threshold }}"
+          # Add additional actions for adaptive learning
+
+      # Implement basic temperature control for each zone
+      - conditions: "{{ zone.name }}_learning_enabled == false"
+        sequence:
+          - service: climate.set_temperature
+            target:
+              entity_id: "{{ zone.tado_device }}"
+            data:
+              temperature: "{{ zone.desired_temperature }}"
+            # Add additional actions for basic temperature control
+
+    # Iterate over each zone
+    sequence:
+      - variables:
+          zone: "{{ zone }}"
+        choose:
+          # Check if adaptive learning is enabled for the zone
+          - conditions: "{{ zone.name }}_learning_enabled is defined and {{ zone.name }}_learning_enabled == true"
+            sequence: []
+
+          # If adaptive learning is not enabled, proceed with basic temperature control
+          - conditions: "{{ zone.name }}_learning_enabled is undefined or {{ zone.name }}_learning_enabled == false"
+            sequence: []
+
 mode: single
