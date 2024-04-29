@@ -2,6 +2,14 @@ blueprint:
   name: Advanced Tado Temperature Control
   description: |
     This blueprint provides advanced temperature control for Tado smart valves, with features such as dynamic threshold adjustment, adaptive learning, and multi-zone support.
+    
+    **Change Log:**
+    - Added advanced temperature control features.
+    - Implemented dynamic threshold adjustment based on outdoor temperature.
+    - Introduced adaptive learning capabilities.
+    - Enabled multi-zone support.
+    - Updated source URL for direct editing on GitHub.
+    
   domain: automation
   input:
     # Add inputs for dynamic threshold adjustment
@@ -81,9 +89,3 @@ action:
 
 metadata:
   version: "2.0"
-  changelog:
-    - "Added advanced temperature control features."
-    - "Implemented dynamic threshold adjustment based on outdoor temperature."
-    - "Introduced adaptive learning capabilities."
-    - "Enabled multi-zone support."
-    - "Updated source URL for direct editing on GitHub."
