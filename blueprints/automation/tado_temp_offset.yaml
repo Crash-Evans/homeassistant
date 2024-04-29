@@ -20,8 +20,9 @@ blueprint:
       description: List of zones to control with their respective temperature sensors and Tado devices.
       selector:
         entity:
-          domain: input_select
-      default: []
+          domain: sensor
+          device_class: temperature
+          multiple: true
 
   source_url: https://github.com/Crash-Evans/homeassistant/edit/main/blueprints/automation/tado_temp_offset.yaml
 
