@@ -79,4 +79,69 @@ variables:
   outdoor_temp_sensor: !input "outdoor_temp_sensor"
 
 trigger:
-  - pl
+  - platform: state
+    entity_id: !input target_tado
+    attribute: current_temperature
+
+condition:
+  # Check if the automation is already running to avoid errors
+  - condition: not
+    conditions:
+      - condition: state
+        entity_id: automation.tado_temperature_offset
+        state: 'on'
+
+  - condition: and
+    conditions:
+      - not:
+          condition: state
+          entity_id: !input target_tado
+          state: "off"
+      - condition: template
+        value_template: "{{ trigger.to_state.attributes.entity_id == source_temp_sensor or trigger.to_state.attributes.entity_id == target_tado }}"
+      - condition: template
+        value_template: "{{ offset != 0 and actual_temp != 0 and heating_rate | int <= heating_threshold }}"
+      - condition: or
+        conditions:
+          - condition: template
+            value_template: '{{ run_flag and trigger_sensor == false }}'
+          - condition: template
+            value_template: '{{ (run_flag and trigger.to_state.attributes.entity_id == "day") or trigger.to_state.attributes.entity_id == "night" }}'
+          - condition: template
+            value_template: '{{ trigger_sensor == true }}'
+
+action:
+  - variables:
+      heating_rate: "{{ (tado_temp - actual_temp) / (tado_temp - actual_temp + 0.1) * 100 }}"
+      heating_time: "{{ ((tado_temp - actual_temp) / heating_rate) | round(0) }}"
+  - repeat:
+      count: "{{ 2 if night_switch == 'night' else 1 }}"
+      sequence:
+        - service: system_log.write
+          data:
+            message: "{{ target_tado }} has a temperature difference of {{ offset }}. Setting offset to {{ calculated_offset }}"
+            level: info
+            logger: blueprints.tado.offset
+        - service: system_log.write
+          data:
+            message: >
+              target: {{ target_tado }}
+              source: {{ source_temp_sensor }}
+              temperature_difference: {{ offset }}
+              actual_temperature: {{ actual_temp }}
+              tado_temperature: {{ tado_temp }}
+              current_offset: {{ current_offset }}
+              calculated_offset: {{ calculated_offset }}
+              heating_rate: {{ heating_rate }}
+              heating_threshold: {{ heating_threshold }}
+              heating_time: {{ heating_time }} min
+            level: debug
+            logger: blueprints.tado.offset
+        - service: tado.set_climate_temperature_offset
+          data:
+            offset: "{{ calculated_offset }}"
+            entity_id: "{{ target_tado }}"
+  - service: automation.turn_on
+    target:
+      entity_id: automation.tado_temperature_offset
+mode: restart
