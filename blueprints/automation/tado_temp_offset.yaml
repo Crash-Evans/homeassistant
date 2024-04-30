@@ -53,7 +53,7 @@ blueprint:
             - binary_sensor
             - input_boolean
 
-  source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/edit/fix-heating-rate-error/blueprints/automation/tado_temp_offset.yaml
 
 variables:
   target_tado: !input "target_tado"
