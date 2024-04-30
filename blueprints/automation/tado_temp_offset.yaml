@@ -64,8 +64,8 @@ variables:
   tado_temp: '{{ state_attr(target_tado, "current_temperature") | float }}'  # Fetch dynamically
   current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
   actual_temp: "{{ states(source_temp_sensor) | float }}"
-  run_flag: '{{ night_switch is not none and is_state(night_switch, "off") }}'
-  heating_rate: '{{ state_attr(target_tado, "heating_rate") | default(0) | float }}'  # Handle error gracefully
+  run_flag: '{{ night_switch is none or (night_switch is not none and is_state(night_switch, "off")) }}' # flag for determining the daytime-mode
+  heating_rate: '{{ expand(device_entities(device_id(target_tado))) | selectattr("entity_id","match", "^sensor.*heating$") | map(attribute="state") | first | float }}'  # Handle error gracefully
   offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
   calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
 
@@ -96,8 +96,6 @@ condition:
         value_template: "{{ offset != 0 and actual_temp != 0 and heating_rate <= heating_threshold }}"
       - condition: or
         conditions:
-          - condition: template
-            value_template: '{{ run_flag and trigger_sensor == false }}'
           - condition: template
             value_template: '{{ (run_flag and trigger.id == "day") or trigger.id == "night" }}'
           - condition: template
