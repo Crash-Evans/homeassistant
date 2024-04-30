@@ -53,7 +53,7 @@ blueprint:
             - binary_sensor
             - input_boolean
 
-  source_url: https://github.com/Crash-Evans/homeassistant/edit/fix-heating-rate-error/blueprints/automation/tado_temp_offset.yaml
+  source_url: https://github.com/Crash-Evans/homeassistant/blob/main/blueprints/automation/tado_temp_offset.yaml
 
 variables:
   target_tado: !input "target_tado"
@@ -64,7 +64,7 @@ variables:
   tado_temp: '{{ state_attr(target_tado, "current_temperature") | float }}'  # Fetch dynamically
   current_offset: '{{ state_attr(target_tado, "offset_celsius") }}'
   actual_temp: "{{ states(source_temp_sensor) | float }}"
-  day_flag: '{{ night_switch is none or (night_switch is not none and is_state(night_switch, "off")) }}' # flag for determining the daytime-mode
+  run_flag: '{{ night_switch is none or (night_switch is not none and is_state(night_switch, "off")) }}' # flag for determining the daytime-mode
   heating_rate: '{{ expand(device_entities(device_id(target_tado))) | selectattr("entity_id","match", "^sensor.*heating$") | map(attribute="state") | first | float }}'  # Handle error gracefully
   offset: '{{ ( actual_temp - tado_temp ) | round(1,"common") }}'
   calculated_offset: '{{ ( offset + current_offset ) | round(1,"common") }}'  # Simplified calculation
@@ -79,11 +79,9 @@ trigger:
   - platform: time_pattern
     minutes: "/30"
     id: day
-    if: "{{ day_flag }}"
   - platform: time_pattern
     hours: "/2"
     id: night
-    if: "{{ day_flag }}"
 
 condition:
   - condition: and
@@ -97,7 +95,7 @@ condition:
       - condition: or
         conditions:
           - condition: template
-            value_template: '{{ trigger.id == "day" or trigger.id == "night" }}'
+            value_template: '{{ (run_flag and trigger.id == "day") or trigger.id == "night" }}'
           - condition: template
             value_template: '{{ trigger_sensor == true }}'
 
