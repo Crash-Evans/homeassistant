@@ -2,7 +2,7 @@ blueprint:
   name: Advanced Tado Temperature Control
   description: |
     This blueprint provides advanced temperature control for Tado smart valves, with features such as dynamic threshold adjustment, adaptive learning, multi-zone support, and sleep mode to limit changes at night.
-    
+    Version: 2.1
     **Change Log:**
     - Added advanced temperature control features.
     - Implemented dynamic threshold adjustment based on outdoor temperature.
@@ -61,7 +61,8 @@ action:
         - variables:
             zone: "{{ expand(zones)[repeat.index] }}"
           choose:
-            - conditions: "{{ zone.name }}_learning_enabled is defined and {{ zone.name }}_learning_enabled == true"
+            - conditions: >
+                {{ zone.name ~ '_learning_enabled' in state_attr(zone, 'all') and state_attr(zone, 'all')[zone.name ~ '_learning_enabled'] == true }}
               sequence:
                 - service: script.train_temperature_prediction_model
                   data:
@@ -73,22 +74,19 @@ action:
                     zone: "{{ zone.name }}"
                     outdoor_temperature_sensor: "{{ outdoor_temperature_sensor }}"
                     heating_threshold: "{{ heating_threshold }}"
-            - conditions: "{{ zone.name }}_learning_enabled is undefined or {{ zone.name }}_learning_enabled == false"
+            - conditions: >
+                {{ zone.name ~ '_learning_enabled' not in state_attr(zone, 'all') or state_attr(zone, 'all')[zone.name ~ '_learning_enabled'] == false }}
               sequence:
                 - service: climate.set_temperature
                   target:
                     entity_id: "{{ state_attr(zone, 'tado_device') }}"
                   data:
                     temperature: "{{ state_attr(zone, 'desired_temperature') }}"
-              # Add sleep mode condition to limit changes at night
-            - conditions: "{{ sleep_mode == true and now().hour >= 22 or now().hour < 6 }}"
+            - conditions: >
+                sleep_mode == true and (now().hour >= 22 or now().hour < 6)
               sequence:
                 - service: climate.set_temperature
                   target:
                     entity_id: "{{ state_attr(zone, 'tado_device') }}"
                   data:
                     temperature: "{{ state_attr(zone, 'desired_temperature') }}"
-                  # You can customize the temperature for sleep mode if needed
-
-metadata:
-  version: "2.1"
