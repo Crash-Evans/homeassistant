@@ -2,7 +2,7 @@ blueprint:
   name: Advanced Tado Temperature Control
   description: |
     This blueprint provides advanced temperature control for Tado smart valves, with features such as dynamic threshold adjustment, adaptive learning, multi-zone support, and sleep mode to limit changes at night.
-    Version: 2.1
+    Version 2.1
     **Change Log:**
     - Added advanced temperature control features.
     - Implemented dynamic threshold adjustment based on outdoor temperature.
@@ -30,7 +30,6 @@ blueprint:
       selector:
         entity:
           domain: group
-      multiple: true
 
     sleep_mode:
       name: Sleep Mode
@@ -90,3 +89,6 @@ action:
                     entity_id: "{{ state_attr(zone, 'tado_device') }}"
                   data:
                     temperature: "{{ state_attr(zone, 'desired_temperature') }}"
+
+metadata:
+  version: "2.1"
